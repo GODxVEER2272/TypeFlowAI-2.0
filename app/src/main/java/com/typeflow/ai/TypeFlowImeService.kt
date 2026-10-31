@@ -21,46 +21,45 @@ import java.util.concurrent.Executors
 
 class TypeFlowImeService : InputMethodService() {
 
-    private val executor = Executors.newSingleThreadExecutor()
-    private val handler = Handler(Looper.getMainLooper())
+    private val io = Executors.newSingleThreadExecutor()
+    private val main = Handler(Looper.getMainLooper())
 
-    private val background = Color.rgb(25, 24, 32)
-    private val keyColor = Color.rgb(54, 51, 65)
-    private val accent = Color.rgb(112, 87, 160)
-    private val textColor = Color.WHITE
-    private val muted = Color.rgb(185, 180, 200)
+    private val bgColor = Color.rgb(25, 24, 33)
+    private val keyColor = Color.rgb(55, 52, 67)
+    private val accentColor = Color.rgb(91, 72, 132)
+    private val foregroundColor = Color.WHITE
+    private val secondaryColor = Color.rgb(190, 185, 205)
 
-    private var status: TextView? = null
-    private var suggestions: LinearLayout? = null
     private var keyboard: LinearLayout? = null
+    private var suggestionBar: LinearLayout? = null
+    private var status: TextView? = null
 
-    private var symbolMode = false
+    private var symbols = false
     private var symbolPage = 0
-    private var emojiMode = false
+    private var emojis = false
     private var shifted = false
     private var capsLock = false
+    private var languageIndex = 0
 
     private val languages = listOf(
         "auto", "english", "hinglish", "hindi", "gujarati"
     )
 
-    private var languageIndex = 0
-
     private val dictionary = listOf(
         "about", "after", "again", "also", "always",
         "amazing", "and", "are", "because", "beautiful",
         "before", "best", "better", "bro", "can", "come",
-        "could", "day", "definitely", "do", "doing",
-        "done", "everything", "excellent", "for", "from",
-        "friend", "get", "going", "good", "great", "happy",
-        "have", "hello", "help", "here", "hey", "how",
-        "important", "just", "know", "like", "love",
-        "make", "maybe", "more", "much", "need", "nice",
-        "not", "now", "okay", "please", "really", "right",
-        "should", "sorry", "thanks", "that", "the", "their",
-        "there", "this", "today", "tomorrow", "very",
-        "want", "was", "what", "when", "where", "which",
-        "will", "with", "would", "you", "your"
+        "could", "day", "definitely", "doing", "done",
+        "everything", "excellent", "for", "from", "friend",
+        "get", "going", "good", "great", "happy", "have",
+        "hello", "help", "here", "hey", "how", "important",
+        "just", "know", "like", "love", "make", "maybe",
+        "more", "much", "need", "nice", "not", "now",
+        "okay", "please", "really", "right", "should",
+        "sorry", "thanks", "that", "the", "their", "there",
+        "this", "today", "tomorrow", "very", "want", "was",
+        "what", "when", "where", "which", "will", "with",
+        "would", "you", "your"
     )
 
     private val corrections = mapOf(
@@ -82,28 +81,24 @@ class TypeFlowImeService : InputMethodService() {
     override fun onCreate() {
         super.onCreate()
 
-        val prefs = getSharedPreferences("typeflow", MODE_PRIVATE)
-        val savedLanguage = prefs.getString("language", "auto") ?: "auto"
+        val saved = getSharedPreferences("typeflow", MODE_PRIVATE)
+            .getString("language", "auto") ?: "auto"
 
-        languageIndex = languages.indexOf(savedLanguage)
-            .let { if (it < 0) 0 else it }
+        languageIndex = languages.indexOf(saved).let {
+            if (it < 0) 0 else it
+        }
     }
 
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
 
-    private fun connection(): InputConnection? =
-        currentInputConnection
+    private fun ic(): InputConnection? = currentInputConnection
 
     override fun onCreateInputView(): View {
-        return buildKeyboard()
-    }
-
-    private fun buildKeyboard(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(4), dp(5), dp(4), dp(7))
-            setBackgroundColor(background)
+            setBackgroundColor(bgColor)
         }
 
         val toolbar = LinearLayout(this).apply {
@@ -122,7 +117,7 @@ class TypeFlowImeService : InputMethodService() {
 
         actions.forEach { (label, task) ->
             toolbar.addView(
-                toolButton(label) { runAi(task) },
+                toolKey(label) { runAi(task) },
                 LinearLayout.LayoutParams(0, dp(43), 1f).apply {
                     setMargins(dp(1), dp(2), dp(1), dp(3))
                 }
@@ -135,22 +130,22 @@ class TypeFlowImeService : InputMethodService() {
             text = "TypeFlow AI 2.1"
             textSize = 11f
             gravity = Gravity.CENTER
-            setTextColor(muted)
-            setPadding(0, dp(3), 0, dp(4))
+            setTextColor(secondaryColor)
+            setPadding(0, dp(3), 0, dp(3))
         }
 
         root.addView(status)
 
-        suggestions = LinearLayout(this).apply {
+        suggestionBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
 
         root.addView(
-            suggestions,
+            suggestionBar,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(38)
+                dp(37)
             )
         )
 
@@ -160,45 +155,37 @@ class TypeFlowImeService : InputMethodService() {
 
         root.addView(keyboard)
 
-        renderKeys()
+        renderKeyboard()
         updateSuggestions()
 
         return root
     }
 
-    private fun toolButton(label: String, action: () -> Unit): TextView {
+    private fun toolKey(label: String, action: () -> Unit): TextView {
         return TextView(this).apply {
             text = label
             textSize = 10f
             gravity = Gravity.CENTER
-            setTextColor(textColor)
-            setBackgroundColor(accent)
+            setTextColor(foregroundColor)
+            setBackgroundColor(accentColor)
             setOnClickListener { action() }
         }
     }
 
-    private fun makeKey(
+    private fun key(
         label: String,
-        action: () -> Unit,
         weight: Float = 1f,
         height: Int = 49,
-        longAction: (() -> Unit)? = null
+        action: () -> Unit
     ): TextView {
         return TextView(this).apply {
             text = label
             textSize = if (label.length > 2) 12f else 19f
             typeface = Typeface.DEFAULT
             gravity = Gravity.CENTER
-            setTextColor(textColor)
+            setTextColor(foregroundColor)
             setBackgroundColor(keyColor)
             setOnClickListener { action() }
-
-            if (longAction != null) {
-                setOnLongClickListener {
-                    longAction()
-                    true
-                }
-            }
 
             layoutParams = LinearLayout.LayoutParams(
                 0, dp(height), weight
@@ -208,136 +195,159 @@ class TypeFlowImeService : InputMethodService() {
         }
     }
 
-    private fun addRow(
-        parent: LinearLayout,
-        keys: List<Triple<String, Float, () -> Unit>>
-    ) {
-        val row = LinearLayout(this).apply {
+    private fun newRow(): LinearLayout {
+        return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
+    }
 
-        keys.forEach { (label, weight, action) ->
-            row.addView(makeKey(label, action, weight))
+    private fun addCharacterRow(
+        parent: LinearLayout,
+        characters: String
+    ) {
+        val row = newRow()
+
+        characters.forEach { original ->
+            val shown = if (shifted || capsLock) {
+                original.uppercaseChar()
+            } else {
+                original
+            }
+
+            row.addView(key(shown.toString()) {
+                insert(shown.toString())
+
+                if (shifted && !capsLock) {
+                    shifted = false
+                    renderKeyboard()
+                }
+            })
         }
 
         parent.addView(row)
     }
 
-    private fun renderKeys() {
+    private fun renderKeyboard() {
         val target = keyboard ?: return
         target.removeAllViews()
 
-        if (emojiMode) {
-            renderEmoji(target)
-            return
+        when {
+            emojis -> renderEmojiKeyboard(target)
+            symbols -> renderSymbolKeyboard(target)
+            else -> renderLetterKeyboard(target)
+        }
+    }
+
+    private fun renderLetterKeyboard(target: LinearLayout) {
+
+        // Number row
+        val numbers = newRow()
+
+        "1234567890".forEach { character ->
+            numbers.addView(key(character.toString()) {
+                insert(character.toString())
+            })
         }
 
-        if (symbolMode) {
-            renderSymbols(target)
-            return
-        }
+        target.addView(numbers)
 
-        val numberRow = "1234567890".map { it.toString() }
+        // QWERTY rows
+        addCharacterRow(target, "qwertyuiop")
+        addCharacterRow(target, "asdfghjkl")
 
-        addRow(target, numberRow.map { key ->
-            Triple(key, 1f) { insert(key) }
-        })
+        // Shift + bottom letter row + backspace
+        val third = newRow()
 
-        val rows = listOf(
-            "qwertyuiop",
-            "asdfghjkl",
-            "zxcvbnm"
-        )
-
-        rows.forEachIndexed { index, rowText ->
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-            }
-
-            if (index == 2) {
-                row.addView(
-                    makeKey(
-                        if (capsLock) "⇪" else "⇧",
-                        { toggleShift() },
-                        1.35f
-                    )
-                )
-            }
-
-            rowText.forEach { char ->
-                val character = if (shifted || capsLock) {
-                    char.uppercaseChar()
+        third.addView(
+            key(if (capsLock) "⇪" else "⇧", 1.35f) {
+                if (shifted) {
+                    capsLock = !capsLock
+                    shifted = capsLock
                 } else {
-                    char
+                    shifted = true
                 }
+                renderKeyboard()
+            }
+        )
 
-                row.addView(
-                    makeKey(character.toString(), {
-                        insert(character.toString())
-                        if (shifted && !capsLock) {
-                            shifted = false
-                            renderKeys()
-                        }
-                    })
-                )
+        "zxcvbnm".forEach { original ->
+            val shown = if (shifted || capsLock) {
+                original.uppercaseChar()
+            } else {
+                original
             }
 
-            if (index == 2) {
-                row.addView(
-                    makeKey("⌫", { backspace() }, 1.35f, 49) {
-                        connection()?.deleteSurroundingText(10, 0)
-                        updateSuggestions()
-                    }
-                )
+            third.addView(key(shown.toString()) {
+                insert(shown.toString())
+
+                if (shifted && !capsLock) {
+                    shifted = false
+                    renderKeyboard()
+                }
+            })
+        }
+
+        third.addView(
+            key("⌫", 1.35f) {
+                backspace()
             }
+        )
 
-            target.addView(row)
-        }
+        target.addView(third)
 
-        val bottom = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
+        // Bottom row
+        val bottom = newRow()
 
         bottom.addView(
-            makeKey("?123", {
-                symbolMode = true
+            key("?123", 1.35f, 48) {
+                symbols = true
                 symbolPage = 0
-                renderKeys()
-            }, 1.35f, 48)
+                renderKeyboard()
+            }
         )
 
         bottom.addView(
-            makeKey("☺", {
-                emojiMode = true
-                renderKeys()
-            }, 1f, 48)
+            key("☺", 0.9f, 48) {
+                emojis = true
+                renderKeyboard()
+            }
         )
 
         bottom.addView(
-            makeKey(",", { insert(",") }, 0.8f, 48)
+            key(",", 0.7f, 48) {
+                insert(",")
+            }
+        )
+
+        val space = key(languageLabel(), 3.6f, 48) {
+            autoCorrect()
+            insert(" ")
+        }
+
+        space.setOnLongClickListener {
+            cycleLanguage()
+            true
+        }
+
+        bottom.addView(space)
+
+        bottom.addView(
+            key(".", 0.7f, 48) {
+                insert(".")
+            }
         )
 
         bottom.addView(
-            makeKey(languageLabel(), {
-                cycleLanguage()
-            }, 3.8f, 48)
-        )
-
-        bottom.addView(
-            makeKey(".", { insert(".") }, 0.8f, 48)
-        )
-
-        bottom.addView(
-            makeKey("↵", { sendEnter() }, 1.2f, 48)
+            key("↵", 1.1f, 48) {
+                sendEnter()
+            }
         )
 
         target.addView(bottom)
     }
 
-    private fun renderSymbols(target: LinearLayout) {
+    private fun renderSymbolKeyboard(target: LinearLayout) {
         val pages = listOf(
             listOf(
                 "1234567890",
@@ -354,134 +364,142 @@ class TypeFlowImeService : InputMethodService() {
         )
 
         pages[symbolPage].forEach { line ->
-            addRow(target, line.map { char ->
-                Triple(char.toString(), 1f) {
-                    insert(char.toString())
-                }
-            })
+            val row = newRow()
+
+            line.forEach { character ->
+                row.addView(key(character.toString()) {
+                    insert(character.toString())
+                })
+            }
+
+            target.addView(row)
         }
 
-        val bottom = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
+        val bottom = newRow()
 
         bottom.addView(
-            makeKey("ABC", {
-                symbolMode = false
-                renderKeys()
-            }, 1.5f, 48)
+            key("ABC", 1.3f, 48) {
+                symbols = false
+                renderKeyboard()
+            }
         )
 
         bottom.addView(
-            makeKey("☺", {
-                emojiMode = true
-                renderKeys()
-            }, 1f, 48)
+            key("☺", 0.9f, 48) {
+                emojis = true
+                renderKeyboard()
+            }
         )
 
         bottom.addView(
-            makeKey("=\\<", {
+            key("=\\<", 1.1f, 48) {
                 symbolPage = 1 - symbolPage
-                renderKeys()
-            }, 1.5f, 48)
+                renderKeyboard()
+            }
         )
 
         bottom.addView(
-            makeKey("⌫", { backspace() }, 1f, 48)
+            key("⌫", 1f, 48) {
+                backspace()
+            }
         )
 
         bottom.addView(
-            makeKey("Space", { insert(" ") }, 3f, 48)
+            key("Space", 2.5f, 48) {
+                autoCorrect()
+                insert(" ")
+            }
         )
 
         bottom.addView(
-            makeKey("↵", { sendEnter() }, 1f, 48)
+            key("↵", 1f, 48) {
+                sendEnter()
+            }
         )
 
         target.addView(bottom)
     }
 
-    private fun renderEmoji(target: LinearLayout) {
-        val emojis = listOf(
-            "😀","😂","🥹","😍","🥰","😎","😭","😊",
-            "🔥","❤️","✨","👍","🙏","💯","🎉","🤔",
-            "😅","🤣","😴","🤝","💀","🚀","🌟","🙌",
-            "😉","😇","🥳","😢","💖","👏","🤩","🫡"
+    private fun renderEmojiKeyboard(target: LinearLayout) {
+        val emojiList = listOf(
+            "😀", "😂", "🥹", "😍", "🥰", "😎", "😭", "😊",
+            "🔥", "❤️", "✨", "👍", "🙏", "💯", "🎉", "🤔",
+            "😅", "🤣", "😴", "🤝", "💀", "🚀", "🌟", "🙌",
+            "😉", "😇", "🥳", "😢", "💖", "👏", "🤩", "🫡"
         )
 
-        emojis.chunked(8).forEach { group ->
-            addRow(target, group.map { emoji ->
-                Triple(emoji, 1f) { insert(emoji) }
-            })
+        emojiList.chunked(8).forEach { group ->
+            val row = newRow()
+
+            group.forEach { emoji ->
+                row.addView(key(emoji) {
+                    insert(emoji)
+                })
+            }
+
+            target.addView(row)
         }
 
-        val bottom = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
+        val bottom = newRow()
 
         bottom.addView(
-            makeKey("ABC", {
-                emojiMode = false
-                renderKeys()
-            }, 2f, 48)
+            key("ABC", 1.5f, 48) {
+                emojis = false
+                renderKeyboard()
+            }
         )
 
         bottom.addView(
-            makeKey("⌫", { backspace() }, 1f, 48)
+            key("⌫", 1f, 48) {
+                backspace()
+            }
         )
 
         bottom.addView(
-            makeKey("Space", { insert(" ") }, 3f, 48)
+            key("Space", 2.5f, 48) {
+                insert(" ")
+            }
         )
 
         bottom.addView(
-            makeKey("↵", { sendEnter() }, 1f, 48)
+            key("↵", 1f, 48) {
+                sendEnter()
+            }
         )
 
         target.addView(bottom)
     }
 
     private fun insert(value: String) {
-        connection()?.commitText(value, 1)
+        ic()?.commitText(value, 1)
         updateSuggestions()
     }
 
     private fun backspace() {
-        val ic = connection() ?: return
-
-        val selected = ic.getSelectedText(0)
+        val input = ic() ?: return
+        val selected = input.getSelectedText(0)
 
         if (!selected.isNullOrEmpty()) {
-            ic.commitText("", 1)
+            input.commitText("", 1)
         } else {
-            ic.deleteSurroundingText(1, 0)
+            input.deleteSurroundingText(1, 0)
         }
 
         updateSuggestions()
     }
 
-    private fun toggleShift() {
-        if (shifted) {
-            capsLock = !capsLock
-            shifted = capsLock
-        } else {
-            shifted = true
-        }
-
-        renderKeys()
-    }
-
     private fun sendEnter() {
-        val ic = connection() ?: return
+        val input = ic() ?: return
+
         val action = currentInputEditorInfo
             ?.imeOptions
             ?.and(EditorInfo.IME_MASK_ACTION) ?: 0
 
-        if (!ic.performEditorAction(action)) {
-            ic.sendKeyEvent(
+        if (!input.performEditorAction(action)) {
+            input.sendKeyEvent(
                 KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)
             )
-            ic.sendKeyEvent(
+            input.sendKeyEvent(
                 KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER)
             )
         }
@@ -489,12 +507,12 @@ class TypeFlowImeService : InputMethodService() {
 
     private fun languageLabel(): String {
         return when (languages[languageIndex]) {
-            "auto" -> "Auto"
-            "english" -> "EN"
-            "hinglish" -> "Hinglish"
-            "hindi" -> "हिंदी"
-            "gujarati" -> "ગુજરાતી"
-            else -> "Auto"
+            "auto" -> "Auto • hold"
+            "english" -> "English • hold"
+            "hinglish" -> "Hinglish • hold"
+            "hindi" -> "हिंदी • hold"
+            "gujarati" -> "ગુજરાતી • hold"
+            else -> "Auto • hold"
         }
     }
 
@@ -509,40 +527,44 @@ class TypeFlowImeService : InputMethodService() {
             .apply()
 
         status?.text = "Language: ${languageLabel()}"
-        renderKeys()
+        renderKeyboard()
     }
 
     private fun updateSuggestions() {
-        val bar = suggestions ?: return
+        val bar = suggestionBar ?: return
         bar.removeAllViews()
 
-        val before = connection()
-            ?.getTextBeforeCursor(80, 0)
+        val before = ic()
+            ?.getTextBeforeCursor(100, 0)
             ?.toString()
             .orEmpty()
 
-        val word = Regex("[\\p{L}']+$")
+        val currentWord = Regex("[\\p{L}']+$")
             .find(before)
             ?.value
             .orEmpty()
 
-        val options = if (word.isBlank()) {
+        val options = if (currentWord.isBlank()) {
             listOf("Hello", "Thanks", "Okay")
         } else {
             val matches = dictionary.filter {
-                it.startsWith(word, ignoreCase = true) &&
-                    !it.equals(word, ignoreCase = true)
+                it.startsWith(currentWord, ignoreCase = true) &&
+                    !it.equals(currentWord, ignoreCase = true)
             }.take(3)
 
-            (matches + listOf(word)).distinct().take(3)
+            if (matches.isEmpty()) {
+                listOf(currentWord)
+            } else {
+                matches
+            }
         }
 
-        options.forEach { suggestion ->
+        options.take(3).forEach { suggestion ->
             val view = TextView(this).apply {
                 text = suggestion
                 textSize = 13f
                 gravity = Gravity.CENTER
-                setTextColor(muted)
+                setTextColor(secondaryColor)
                 setOnClickListener {
                     replaceCurrentWord(suggestion)
                 }
@@ -556,141 +578,133 @@ class TypeFlowImeService : InputMethodService() {
     }
 
     private fun replaceCurrentWord(replacement: String) {
-        val ic = connection() ?: return
+        val input = ic() ?: return
 
-        val before = ic.getTextBeforeCursor(80, 0)
+        val before = input.getTextBeforeCursor(100, 0)
             ?.toString()
             .orEmpty()
 
         val word = Regex("[\\p{L}']+$")
             .find(before)
-            ?.value
-            ?: return
+            ?.value ?: return
 
-        ic.deleteSurroundingText(word.length, 0)
-        ic.commitText(replacement, 1)
+        input.deleteSurroundingText(word.length, 0)
+        input.commitText(replacement, 1)
+
         updateSuggestions()
     }
 
     private fun autoCorrect() {
-        val ic = connection() ?: return
+        val input = ic() ?: return
 
-        val before = ic.getTextBeforeCursor(80, 0)
+        val before = input.getTextBeforeCursor(100, 0)
             ?.toString()
             .orEmpty()
 
         val word = Regex("[\\p{L}']+$")
             .find(before)
-            ?.value
-            ?: return
+            ?.value ?: return
 
         val corrected = corrections[word.lowercase(Locale.ROOT)]
             ?: return
 
-        ic.deleteSurroundingText(word.length, 0)
-        ic.commitText(corrected, 1)
-    }
-
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_SPACE) {
-            autoCorrect()
-            return super.onKeyDown(keyCode, event)
-        }
-
-        return super.onKeyDown(keyCode, event)
+        input.deleteSurroundingText(word.length, 0)
+        input.commitText(corrected, 1)
     }
 
     private fun runAi(task: String) {
-        val ic = connection() ?: return
+        val input = ic() ?: return
 
-        val selected = ic.getSelectedText(0)?.toString().orEmpty()
-        val before = ic.getTextBeforeCursor(500, 0)?.toString().orEmpty()
+        val selected = input.getSelectedText(0)?.toString().orEmpty()
+        val before = input.getTextBeforeCursor(500, 0)
+            ?.toString()
+            .orEmpty()
 
-        val inputText = if (selected.isNotBlank()) {
-            selected
-        } else {
-            before
-        }
+        val original = if (selected.isNotBlank()) selected else before
 
-        if (inputText.isBlank()) {
-            status?.text = "Type or select some text first"
+        if (original.isBlank()) {
+            status?.text = "Type or select text first"
             return
         }
 
-        val prefs = getSharedPreferences("typeflow", MODE_PRIVATE)
-
-        val endpoint = prefs.getString("backend_url", "")
+        val endpoint = getSharedPreferences("typeflow", MODE_PRIVATE)
+            .getString("backend_url", "")
             .orEmpty()
             .trim()
             .trimEnd('/')
 
         if (!endpoint.startsWith("https://")) {
-            status?.text = "Save your HTTPS backend URL in TypeFlow"
+            status?.text = "Save your backend URL in TypeFlow"
             return
         }
 
-        status?.text = "AI is rewriting..."
+        status?.text = "Gemini is working..."
 
-        executor.execute {
-            var http: HttpURLConnection? = null
+        val language = languages[languageIndex]
+
+        io.execute {
+            var connection: HttpURLConnection? = null
 
             try {
-                http = (URL("$endpoint/rewrite").openConnection()
-                    as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    connectTimeout = 15000
-                    readTimeout = 60000
-                    doOutput = true
-                    setRequestProperty(
-                        "Content-Type",
-                        "application/json; charset=UTF-8"
-                    )
-                }
+                val request = URL("$endpoint/rewrite")
+                    .openConnection() as HttpURLConnection
+
+                connection = request
+
+                request.requestMethod = "POST"
+                request.connectTimeout = 15000
+                request.readTimeout = 60000
+                request.doOutput = true
+
+                request.setRequestProperty(
+                    "Content-Type",
+                    "application/json; charset=UTF-8"
+                )
 
                 val payload = JSONObject()
-                    .put("text", inputText)
+                    .put("text", original)
                     .put("task", task)
-                    .put("language", languages[languageIndex])
+                    .put("language", language)
 
-                http.outputStream.use {
+                request.outputStream.use {
                     it.write(payload.toString().toByteArray(Charsets.UTF_8))
                 }
 
-                val code = http.responseCode
+                val code = request.responseCode
 
                 val stream = if (code in 200..299) {
-                    http.inputStream
+                    request.inputStream
                 } else {
-                    http.errorStream
+                    request.errorStream
                 }
 
-                val response = stream?.bufferedReader()
+                val responseText = stream?.bufferedReader()
                     ?.use { it.readText() }
                     ?: throw Exception("Empty server response")
 
-                val resultJson = JSONObject(response)
+                val response = JSONObject(responseText)
 
                 if (code !in 200..299) {
                     throw Exception(
-                        resultJson.optString(
+                        response.optString(
                             "error",
                             "Server error: HTTP $code"
                         )
                     )
                 }
 
-                val rewritten = resultJson.optString("text").trim()
+                val rewritten = response.optString("text").trim()
 
                 if (rewritten.isBlank()) {
-                    throw Exception("AI returned empty text")
+                    throw Exception("Gemini returned empty text")
                 }
 
-                handler.post {
+                main.post {
                     if (selected.isNotBlank()) {
-                        ic.commitText(rewritten, 1)
+                        input.commitText(rewritten, 1)
                     } else {
-                        ic.deleteSurroundingText(inputText.length, 0)
-                        ic.commitText(rewritten, 1)
+                        input.deleteSurroundingText(original.length, 0)
+                        input.commitText(rewritten, 1)
                     }
 
                     status?.text = "Rewritten ✓"
@@ -698,18 +712,18 @@ class TypeFlowImeService : InputMethodService() {
                 }
 
             } catch (error: Exception) {
-                handler.post {
+                main.post {
                     status?.text =
-                        "AI error: ${error.message?.take(90) ?: "Try again"}"
+                        "AI error: ${error.message?.take(85) ?: "Try again"}"
                 }
             } finally {
-                http?.disconnect()
+                connection?.disconnect()
             }
         }
     }
 
     override fun onDestroy() {
-        executor.shutdown()
+        io.shutdown()
         super.onDestroy()
     }
 }
