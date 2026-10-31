@@ -3,7 +3,8 @@ name: Build TypeFlow AI APK
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -29,10 +30,10 @@ jobs:
         with:
           gradle-version: '8.9'
 
-          - name: Install Android SDK packages
+      - name: Install Android SDK packages
         run: |
-          sdkmanager --licenses
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build Debug APK
         run: gradle :app:assembleDebug
