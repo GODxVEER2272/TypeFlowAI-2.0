@@ -51,3 +51,4 @@ Or push this project to a GitHub repository. The included workflow runs on pushe
 - Android's OS may display its standard warning when enabling a third-party keyboard. A keyboard can potentially observe what is typed; use only a keyboard you trust.
 - This is a functional starter, not a Play Store-ready product. It currently provides an English QWERTY layout; Shift/Caps, number/symbol page, multilingual layouts, clipboard history, voice typing, suggestions, per-user authentication and robust abuse controls are not implemented yet.
 - The debug APK is unsigned for Play Store release. A release build needs a signing key stored securely in CI secrets.
+- Cloudflare Git deployment connected.
